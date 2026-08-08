@@ -44,22 +44,20 @@ function normalizeFields(rawFields) {
 
 function coerceValueForField(field, rawValue) {
   if (field.type === 'line_items') {
-    const container = rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue) ? rawValue : { rows: rawValue };
-    const rows = Array.isArray(container.rows) ? container.rows : [];
+    const rows = Array.isArray(rawValue) ? rawValue : rawValue?.rows || [];
     if (field.required && rows.length === 0) throw new Error(`"${field.label}" needs at least one row`);
 
-    const coercedRows = rows.map((row, index) => {
+    return rows.map((row, index) => {
       const description = String(row.description ?? '').trim();
       const quantity = Number(row.quantity);
       const rate = Number(row.rate);
+      const paid = Number(row.paid) || 0;
       if (!description) throw new Error(`"${field.label}" row ${index + 1}: description is required`);
       if (Number.isNaN(quantity)) throw new Error(`"${field.label}" row ${index + 1}: quantity must be a number`);
       if (Number.isNaN(rate)) throw new Error(`"${field.label}" row ${index + 1}: rate must be a number`);
-      return { description, quantity, rate, total: quantity * rate };
+      const total = quantity * rate;
+      return { description, quantity, rate, total, paid, due: total - paid };
     });
-
-    const paidAmount = Number(container.paidAmount) || 0;
-    return { rows: coercedRows, paidAmount };
   }
 
   const isEmpty = rawValue === undefined || rawValue === null || rawValue === '';

@@ -8,11 +8,7 @@ export default function EntryFormModal({ collection, entry, onSave, onClose }) {
   const [values, setValues] = useState(() => {
     const initial = {};
     for (const f of sortedFields) {
-      if (f.type === 'line_items') {
-        initial[f.key] = entry?.data?.[f.key] ?? { rows: [], paidAmount: '' };
-      } else {
-        initial[f.key] = entry?.data?.[f.key] ?? (f.type === 'tags' ? [] : '');
-      }
+      initial[f.key] = entry?.data?.[f.key] ?? (f.type === 'tags' || f.type === 'line_items' ? [] : '');
     }
     return initial;
   });
