@@ -1,6 +1,19 @@
 const mongoose = require('mongoose');
 
 const FIELD_TYPES = ['text', 'number', 'date', 'dropdown', 'tags', 'line_items'];
+const ITEM_COLUMN_TYPES = ['text', 'number', 'dropdown'];
+
+const itemColumnSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true },
+    label: { type: String, required: true, trim: true },
+    type: { type: String, enum: ITEM_COLUMN_TYPES, required: true },
+    options: [{ type: String }],
+    required: { type: Boolean, default: false },
+    builtin: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
 
 const fieldSchema = new mongoose.Schema(
   {
@@ -11,6 +24,8 @@ const fieldSchema = new mongoose.Schema(
     required: { type: Boolean, default: false },
     order: { type: Number, default: 0 },
     defaultValue: { type: mongoose.Schema.Types.Mixed },
+    itemColumns: [itemColumnSchema],
+    trackPayments: { type: Boolean, default: true },
   },
   { _id: false }
 );
@@ -50,3 +65,4 @@ collectionSchema.pre('save', function ensureUniqueFieldKeys(next) {
 
 module.exports = mongoose.model('Collection', collectionSchema);
 module.exports.FIELD_TYPES = FIELD_TYPES;
+module.exports.ITEM_COLUMN_TYPES = ITEM_COLUMN_TYPES;

@@ -1,4 +1,10 @@
-const { FIELD_TYPES } = require('../models/Collection');
+const { FIELD_TYPES, ITEM_COLUMN_TYPES } = require('../models/Collection');
+
+const BUILTIN_ITEM_COLUMNS = [
+  { key: 'description', label: 'Description', type: 'text', required: true },
+  { key: 'quantity', label: 'Quantity', type: 'number', required: true },
+  { key: 'rate', label: 'Rate', type: 'number', required: true },
+];
 
 function slugify(label) {
   return String(label)
@@ -6,6 +12,51 @@ function slugify(label) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
+}
+
+function normalizeItemColumns(rawColumns) {
+  const raw = Array.isArray(rawColumns) ? rawColumns : [];
+
+  const builtins = BUILTIN_ITEM_COLUMNS.map((builtin) => {
+    const override = raw.find((c) => c.key === builtin.key || (c.builtin && c.label && slugify(c.label) === builtin.key));
+    return {
+      ...builtin,
+      label: override?.label?.trim() ? override.label.trim() : builtin.label,
+      builtin: true,
+    };
+  });
+
+  const usedKeys = new Set(builtins.map((b) => b.key));
+  const customRaw = raw.filter((c) => !c.builtin && !BUILTIN_ITEM_COLUMNS.some((b) => b.key === c.key));
+
+  const customs = customRaw.map((c, index) => {
+    if (!c.label || !String(c.label).trim()) {
+      throw new Error(`Item column at index ${index + 1} is missing a label`);
+    }
+    if (!ITEM_COLUMN_TYPES.includes(c.type)) {
+      throw new Error(`Item column "${c.label}" has invalid type "${c.type}"`);
+    }
+    let key = slugify(c.label);
+    if (!key) key = `column_${index}`;
+    let uniqueKey = key;
+    let suffix = 1;
+    while (usedKeys.has(uniqueKey)) {
+      uniqueKey = `${key}_${suffix}`;
+      suffix += 1;
+    }
+    usedKeys.add(uniqueKey);
+
+    return {
+      key: uniqueKey,
+      label: String(c.label).trim(),
+      type: c.type,
+      options: c.type === 'dropdown' ? (c.options || []).map(String) : [],
+      required: Boolean(c.required),
+      builtin: false,
+    };
+  });
+
+  return [...builtins, ...customs];
 }
 
 function normalizeFields(rawFields) {
@@ -30,7 +81,7 @@ function normalizeFields(rawFields) {
     }
     usedKeys.add(uniqueKey);
 
-    return {
+    const base = {
       key: uniqueKey,
       label: String(f.label).trim(),
       type: f.type,
@@ -39,7 +90,39 @@ function normalizeFields(rawFields) {
       order: Number.isFinite(f.order) ? f.order : index,
       defaultValue: f.defaultValue,
     };
+
+    if (f.type === 'line_items') {
+      base.itemColumns = normalizeItemColumns(f.itemColumns);
+      base.trackPayments = f.trackPayments !== false;
+    }
+
+    return base;
   });
+}
+
+function coerceItemColumnValue(column, rawValue, fieldLabel, rowIndex) {
+  const isEmpty = rawValue === undefined || rawValue === null || rawValue === '';
+
+  if (isEmpty) {
+    if (column.required) throw new Error(`"${fieldLabel}" row ${rowIndex + 1}: ${column.label} is required`);
+    return column.type === 'number' ? 0 : '';
+  }
+
+  if (column.type === 'number') {
+    const n = Number(rawValue);
+    if (Number.isNaN(n)) throw new Error(`"${fieldLabel}" row ${rowIndex + 1}: ${column.label} must be a number`);
+    return n;
+  }
+
+  if (column.type === 'dropdown') {
+    const val = String(rawValue);
+    if (column.options.length > 0 && !column.options.includes(val)) {
+      throw new Error(`"${fieldLabel}" row ${rowIndex + 1}: ${column.label} must be one of: ${column.options.join(', ')}`);
+    }
+    return val;
+  }
+
+  return String(rawValue);
 }
 
 function coerceValueForField(field, rawValue) {
@@ -47,16 +130,26 @@ function coerceValueForField(field, rawValue) {
     const rows = Array.isArray(rawValue) ? rawValue : rawValue?.rows || [];
     if (field.required && rows.length === 0) throw new Error(`"${field.label}" needs at least one row`);
 
+    const columns = field.itemColumns && field.itemColumns.length > 0 ? field.itemColumns : BUILTIN_ITEM_COLUMNS;
+    const trackPayments = field.trackPayments !== false;
+
     return rows.map((row, index) => {
-      const description = String(row.description ?? '').trim();
-      const quantity = Number(row.quantity);
-      const rate = Number(row.rate);
-      const paid = Number(row.paid) || 0;
-      if (!description) throw new Error(`"${field.label}" row ${index + 1}: description is required`);
-      if (Number.isNaN(quantity)) throw new Error(`"${field.label}" row ${index + 1}: quantity must be a number`);
-      if (Number.isNaN(rate)) throw new Error(`"${field.label}" row ${index + 1}: rate must be a number`);
-      const total = quantity * rate;
-      return { description, quantity, rate, total, paid, due: total - paid };
+      const coerced = {};
+      for (const column of columns) {
+        coerced[column.key] = coerceItemColumnValue(column, row[column.key], field.label, index);
+      }
+
+      const quantity = Number(coerced.quantity) || 0;
+      const rate = Number(coerced.rate) || 0;
+      coerced.total = quantity * rate;
+
+      if (trackPayments) {
+        const paid = Number(row.paid) || 0;
+        coerced.paid = paid;
+        coerced.due = coerced.total - paid;
+      }
+
+      return coerced;
     });
   }
 
@@ -133,4 +226,11 @@ function buildSearchText(collection, data) {
     .toLowerCase();
 }
 
-module.exports = { slugify, normalizeFields, validateAndCoerceEntryData, buildSearchText };
+module.exports = {
+  slugify,
+  normalizeFields,
+  normalizeItemColumns,
+  validateAndCoerceEntryData,
+  buildSearchText,
+  BUILTIN_ITEM_COLUMNS,
+};

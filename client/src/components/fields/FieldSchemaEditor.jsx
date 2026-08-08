@@ -1,3 +1,5 @@
+import ItemColumnsEditor from './ItemColumnsEditor';
+
 const FIELD_TYPES = [
   { value: 'text', label: 'Text' },
   { value: 'number', label: 'Number' },
@@ -5,6 +7,12 @@ const FIELD_TYPES = [
   { value: 'dropdown', label: 'Dropdown' },
   { value: 'tags', label: 'Tags' },
   { value: 'line_items', label: 'Line items (invoice table)' },
+];
+
+const DEFAULT_ITEM_COLUMNS = [
+  { key: 'description', label: 'Description', type: 'text', required: true, builtin: true },
+  { key: 'quantity', label: 'Quantity', type: 'number', required: true, builtin: true },
+  { key: 'rate', label: 'Rate', type: 'number', required: true, builtin: true },
 ];
 
 function newField() {
@@ -44,7 +52,19 @@ export default function FieldSchemaEditor({ fields, onChange }) {
               style={{ flex: '1 1 180px' }}
               required
             />
-            <select value={field.type} onChange={(e) => updateField(index, { type: e.target.value })} style={{ flex: '0 0 140px' }}>
+            <select
+              value={field.type}
+              onChange={(e) => {
+                const type = e.target.value;
+                const patch = { type };
+                if (type === 'line_items' && !field.itemColumns) {
+                  patch.itemColumns = DEFAULT_ITEM_COLUMNS.map((c) => ({ ...c }));
+                  patch.trackPayments = true;
+                }
+                updateField(index, patch);
+              }}
+              style={{ flex: '0 0 140px' }}
+            >
               {FIELD_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
@@ -92,6 +112,18 @@ export default function FieldSchemaEditor({ fields, onChange }) {
                 }
                 style={{ width: '100%' }}
                 placeholder="e.g. Food, Travel, Office"
+              />
+            </div>
+          )}
+
+          {field.type === 'line_items' && (
+            <div style={{ marginTop: 10 }}>
+              <label className="field-label">Invoice table columns</label>
+              <ItemColumnsEditor
+                columns={field.itemColumns || DEFAULT_ITEM_COLUMNS}
+                trackPayments={field.trackPayments !== false}
+                onChangeColumns={(itemColumns) => updateField(index, { itemColumns })}
+                onChangeTrackPayments={(trackPayments) => updateField(index, { trackPayments })}
               />
             </div>
           )}

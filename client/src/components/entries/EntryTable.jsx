@@ -6,7 +6,7 @@ function formatValue(field, value) {
   if (field.type === 'line_items') {
     const rows = getRows(value);
     if (rows.length === 0) return '—';
-    const due = lineItemsDue(value);
+    const due = field.trackPayments !== false ? lineItemsDue(value) : 0;
     return (
       <>
         {rows.length} item{rows.length === 1 ? '' : 's'} · Total {lineItemsSubtotal(rows).toLocaleString()}

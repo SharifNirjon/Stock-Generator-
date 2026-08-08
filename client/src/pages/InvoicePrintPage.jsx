@@ -9,6 +9,19 @@ import { lineItemsFields, getRows, lineItemsSubtotal, lineItemsPaidTotal } from 
 import { amountInWords } from '../utils/amountInWords';
 import { exportElementToPdf } from '../utils/exportPdf';
 
+const BUILTIN_COLUMNS_FALLBACK = [
+  { key: 'description', label: 'Description' },
+  { key: 'quantity', label: 'Quantity' },
+  { key: 'rate', label: 'Rate' },
+];
+
+function formatCellValue(row, column) {
+  const value = row[column.key];
+  if (value === null || value === undefined || value === '') return '';
+  if (column.type === 'number') return Number(value).toLocaleString();
+  return String(value);
+}
+
 function formatHeaderValue(field, value) {
   if (value === null || value === undefined || value === '') return '';
   if (field.type === 'date') return format(new Date(value), 'dd.MM.yyyy');
@@ -43,6 +56,11 @@ export default function InvoicePrintPage() {
     .sort((a, b) => a.order - b.order);
 
   const itemFields = lineItemsFields(collection);
+  const primaryItemField = itemFields[0];
+  const columns = primaryItemField?.itemColumns?.length ? primaryItemField.itemColumns : BUILTIN_COLUMNS_FALLBACK;
+  const trackPayments = primaryItemField ? primaryItemField.trackPayments !== false : true;
+  const totalColumnCount = 1 + columns.length + 1 + (trackPayments ? 2 : 0);
+
   const rows = itemFields.flatMap((f) => getRows(entry.data[f.key]));
   const grandTotal = itemFields.reduce((sum, f) => sum + lineItemsSubtotal(getRows(entry.data[f.key])), 0);
   const paidAmount = itemFields.reduce((sum, f) => sum + lineItemsPaidTotal(entry.data[f.key]), 0);
@@ -115,8 +133,8 @@ export default function InvoicePrintPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
           <thead>
             <tr>
-              {['No.', 'Description', 'Quantity', 'Rate', 'Total', 'Paid', 'Due'].map((h) => (
-                <th key={h} style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>
+              {['No.', ...columns.map((c) => c.label), 'Total', ...(trackPayments ? ['Paid', 'Due'] : [])].map((h, i) => (
+                <th key={i} style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>
                   {h}
                 </th>
               ))}
@@ -128,62 +146,86 @@ export default function InvoicePrintPage() {
               return (
                 <tr key={i}>
                   <td style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>{i + 1}</td>
-                  <td style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>{row.description}</td>
-                  <td style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>{row.quantity}</td>
-                  <td style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>
-                    {Number(row.rate).toLocaleString()}
-                  </td>
+                  {columns.map((col) => (
+                    <td key={col.key} style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>
+                      {formatCellValue(row, col)}
+                    </td>
+                  ))}
                   <td style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>
                     {Number(row.total).toLocaleString()}
                   </td>
-                  <td style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>
-                    {Number(row.paid || 0).toLocaleString()}
-                  </td>
-                  <td
-                    style={{
-                      border: '1px solid #000',
-                      padding: '6px 8px',
-                      fontSize: 13,
-                      color: rowDue > 0 ? '#b91c1c' : undefined,
-                    }}
-                  >
-                    {rowDue.toLocaleString()}
-                  </td>
+                  {trackPayments && (
+                    <>
+                      <td style={{ border: '1px solid #000', padding: '6px 8px', fontSize: 13 }}>
+                        {Number(row.paid || 0).toLocaleString()}
+                      </td>
+                      <td
+                        style={{
+                          border: '1px solid #000',
+                          padding: '6px 8px',
+                          fontSize: 13,
+                          color: rowDue > 0 ? '#b91c1c' : undefined,
+                        }}
+                      >
+                        {rowDue.toLocaleString()}
+                      </td>
+                    </>
+                  )}
                 </tr>
               );
             })}
             <tr>
-              <td colSpan={6} style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', textAlign: 'right' }}>
+              <td
+                colSpan={totalColumnCount - 1}
+                style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', textAlign: 'right' }}
+              >
                 Amount Total =
               </td>
               <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>
                 {grandTotal.toLocaleString()}/=
               </td>
             </tr>
-            <tr>
-              <td colSpan={6} style={{ border: '1px solid #000', padding: '6px 8px', textAlign: 'right' }}>
-                Paid =
-              </td>
-              <td style={{ border: '1px solid #000', padding: '6px 8px' }}>{paidAmount.toLocaleString()}/=</td>
-            </tr>
-            <tr>
-              <td
-                colSpan={6}
-                style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', textAlign: 'right', color: dueAmount > 0 ? '#b91c1c' : undefined }}
-              >
-                Due =
-              </td>
-              <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', color: dueAmount > 0 ? '#b91c1c' : undefined }}>
-                {dueAmount.toLocaleString()}/=
-              </td>
-            </tr>
+            {trackPayments && (
+              <>
+                <tr>
+                  <td colSpan={totalColumnCount - 1} style={{ border: '1px solid #000', padding: '6px 8px', textAlign: 'right' }}>
+                    Paid =
+                  </td>
+                  <td style={{ border: '1px solid #000', padding: '6px 8px' }}>{paidAmount.toLocaleString()}/=</td>
+                </tr>
+                <tr>
+                  <td
+                    colSpan={totalColumnCount - 1}
+                    style={{
+                      border: '1px solid #000',
+                      padding: '6px 8px',
+                      fontWeight: 'bold',
+                      textAlign: 'right',
+                      color: dueAmount > 0 ? '#b91c1c' : undefined,
+                    }}
+                  >
+                    Due =
+                  </td>
+                  <td
+                    style={{
+                      border: '1px solid #000',
+                      padding: '6px 8px',
+                      fontWeight: 'bold',
+                      color: dueAmount > 0 ? '#b91c1c' : undefined,
+                    }}
+                  >
+                    {dueAmount.toLocaleString()}/=
+                  </td>
+                </tr>
+              </>
+            )}
           </tbody>
         </table>
 
         <p style={{ borderBottom: '1px solid #000', display: 'inline-block', paddingBottom: 2, fontSize: 13 }}>
           {currencyWord} in Word: {amountInWords(grandTotal, currencyWord)}.
         </p>
-        {dueAmount > 0 && (
+        {trackPayments && dueAmount > 0 && (
           <p style={{ fontSize: 13, fontWeight: 'bold', color: '#b91c1c', marginTop: 6 }}>
             Due in Word: {amountInWords(dueAmount, currencyWord)}.
           </p>
